@@ -52,7 +52,8 @@ requirements:
     - psycopg2 ==2.9.3
     - greenlet ==1.1.2
     - libpq ==14.2
-    - matplotlib ==3.5.1
+    - pyodbc ==4.0.32
+    - unixodbc ==2.3.10
 
 test:
   imports:
