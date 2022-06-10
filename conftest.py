@@ -10,14 +10,9 @@ import uuid
 import dask
 import pytest
 import s3fs
+from coiled import Cluster
 from dask.distributed import Client
 from toolz import merge
-
-try:
-    from coiled.v2 import Cluster
-except ImportError:
-    from coiled._beta import ClusterBeta as Cluster
-
 
 # So coiled logs can be displayed on test failure
 logging.getLogger("coiled").setLevel(logging.INFO)
