@@ -12,7 +12,7 @@ from distutils.util import strtobool
 import dask
 import pytest
 import s3fs
-from dask.distributed import Client
+from dask.distributed import Client, performance_report
 from toolz import merge
 
 try:
@@ -46,6 +46,9 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "latest_runtime" in item.keywords:
             item.add_marker(skip_latest)
+
+
+UNIQUE_ID = uuid.uuid4().hex[:8]
 
 
 def get_software():
@@ -84,7 +87,7 @@ def small_cluster(request):
     )
     module = os.path.basename(request.fspath).split(".")[0]
     with Cluster(
-        name=f"{module}-{uuid.uuid4().hex[:8]}",
+        name=f"{module}-{UNIQUE_ID}",
         n_workers=10,
         worker_vm_types=["t3.large"],
         scheduler_vm_types=["t3.large"],
@@ -94,14 +97,14 @@ def small_cluster(request):
 
 
 @pytest.fixture
-def small_client(small_cluster, upload_cluster_dump):
+def small_client(small_cluster, upload_cluster_dump, upload_performance_report):
     with Client(small_cluster) as client:
         small_cluster.scale(10)
         client.wait_for_workers(10)
         client.restart()
-
         with upload_cluster_dump(client, small_cluster):
-            yield client
+            with upload_performance_report():
+                yield client
 
 
 S3_REGION = "us-east-2"
@@ -136,12 +139,36 @@ def s3_scratch(s3):
     return scratch_url
 
 
+@pytest.fixture(scope="session")
+def s3_report_url(s3, s3_scratch):
+    # Ensure that the performance-reports directory exists,
+    # but do NOT remove it as multiple test runs could be
+    # accessing it at the same time
+    report_url = f"{s3_scratch}/performance-reports/{UNIQUE_ID}"
+    s3.mkdirs(report_url, exist_ok=True)
+    return report_url
+
+
 @pytest.fixture(scope="function")
 def s3_url(s3, s3_scratch, request):
-    url = f"{s3_scratch}/{request.node.originalname}-{uuid.uuid4().hex}"
+    url = f"{s3_scratch}/{request.node.originalname}-{UNIQUE_ID}"
     s3.mkdirs(url, exist_ok=False)
     yield url
     s3.rm(url, recursive=True)
+
+
+@pytest.fixture
+def upload_performance_report(tmp_path, request, s3, s3_report_url):
+    @contextlib.contextmanager
+    def _upload_performance_report():
+        local_file = str(tmp_path / "performance-report.html")
+        with performance_report(local_file):
+            yield
+        remote_file = s3_report_url + f"/{request.node.originalname}.html"
+        logger.warning(f"Performance report available at: {remote_file}")
+        s3.put(local_file, remote_file)
+
+    return _upload_performance_report
 
 
 @pytest.fixture(scope="session")
